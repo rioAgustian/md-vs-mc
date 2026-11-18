@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Newton vs Metropolis</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body { margin: 0; }
+/* Layout: two lab-bench panels side by side (stack on phones), shared control strip on top, comparison table below */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --fg: #16202a;
+  --muted: #5b6876;
+  --line: #d8dee5;
+  --md: #1f6fb2;        /* Newton / MD: deterministic blue */
+  --md-soft: #dcebf8;
+  --mc: #a8327a;        /* Metropolis / MC: stochastic plum */
+  --mc-soft: #f6e1ee;
+  --ok: #1d8a4c;
+  --bad: #c8372d;
+  --ke: #d9822b;
+  --particle: #8fa3b8;
+  --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --surface: #17202a; --fg: #e6edf3; --muted: #93a1b0; --line: #2a3644;
+    --md: #5aa7e6; --md-soft: #17324a; --mc: #e07bb8; --mc-soft: #3d1d31;
+    --ok: #4cc27f; --bad: #f06a5f; --ke: #f0a557; --particle: #5d7186;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --surface: #17202a; --fg: #e6edf3; --muted: #93a1b0; --line: #2a3644;
+  --md: #5aa7e6; --md-soft: #17324a; --mc: #e07bb8; --mc-soft: #3d1d31;
+  --ok: #4cc27f; --bad: #f06a5f; --ke: #f0a557; --particle: #5d7186;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+}
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+  display: grid; gap: 22px;
+}
+header { display: grid; gap: 6px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-size: clamp(28px, 4.2vw, 44px); line-height: 1.08; margin: 0; text-wrap: balance; }
+h1 .vs { color: var(--muted); font-weight: 500; }
+h1 .n { color: var(--md); }
+h1 .m { color: var(--mc); }
+.lede { margin: 0; max-width: 68ch; color: var(--muted); }
+h2 { font-family: var(--font-display); font-size: 22px; margin: 0; text-wrap: balance; }
+
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px;
+}
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+button {
+  font: 600 14px var(--font-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer;
+}
+button.primary { background: var(--fg); color: var(--surface); border-color: var(--fg); min-width: 92px; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--md); outline-offset: 2px; }
+.slider { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.slider input { width: 120px; accent-color: var(--fg); }
+.slider output { font-family: var(--font-mono); color: var(--fg); min-width: 3.5ch; font-variant-numeric: tabular-nums; }
+
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 820px) { .panels { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; display: grid; gap: 12px; min-width: 0;
+  border-top: 4px solid var(--accent);
+}
+.panel.md { --accent: var(--md); --soft: var(--md-soft); }
+.panel.mc { --accent: var(--mc); --soft: var(--mc-soft); }
+.ptitle { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ptitle h2 { color: var(--accent); }
+.tag { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rule {
+  font-family: var(--font-mono); font-size: 13px; background: var(--soft);
+  border-radius: 8px; padding: 8px 10px; overflow-x: auto; white-space: nowrap;
+}
+canvas.box { width: 100%; aspect-ratio: 1 / 1; max-width: 100%; display: block; border-radius: 8px; background: var(--bg); }
+canvas.spark { width: 100%; height: 86px; display: block; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.stat { display: grid; gap: 0; }
+.stat .k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stat .v { font-family: var(--font-mono); font-size: 16px; font-variant-numeric: tabular-nums; }
+.msg {
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; min-height: 3.2em;
+  border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; color: var(--fg);
+}
+.msg .ok { color: var(--ok); font-weight: 600; }
+.msg .bad { color: var(--bad); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+ol.algo { margin: 0; padding-left: 22px; display: grid; gap: 3px; font-size: 14px; }
+ol.algo li::marker { font-family: var(--font-mono); color: var(--accent); }
+.algo-h { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+.tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th { font-family: var(--font-display); font-size: 15px; }
+thead th.md { color: var(--md); }
+thead th.mc { color: var(--mc); }
+tbody th { font-weight: 600; color: var(--muted); width: 20%; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+code { font-family: var(--font-mono); font-size: .92em; }
+.note { display: grid; gap: 6px; max-width: 80ch; }
+.note p { margin: 0; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Lab 3 (MD Lennard-Jones) · Lab 4 (Monte Carlo)</div>
+    <h1><span class="n">Newton</span> <span class="vs">vs</span> <span class="m">Metropolis</span></h1>
+    <p class="lede">36 partikel Lennard-Jones yang sama, di kotak yang sama, mulai dari posisi yang sama. Kiri: posisi dihitung dari gaya dengan hukum Newton. Kanan: satu partikel dipindah acak lalu diterima atau ditolak dengan kriteria Metropolis. Perhatikan jejak partikel bertanda bintang.</p>
+  </header>
+
+  <div class="controls" role="group" aria-label="Kontrol simulasi">
+    <div class="btns">
+      <button id="play" class="primary" type="button">Jeda</button>
+      <button id="step" type="button" title="MD: satu langkah Δt · MC: satu percobaan">Satu langkah</button>
+      <button id="reset" type="button">Ulang dari awal</button>
+    </div>
+    <label class="slider" for="speed">Kecepatan
+      <input id="speed" type="range" min="1" max="5" step="1" value="3">
+      <output id="speedOut">3</output>
+    </label>
+    <label class="slider" for="temp">Suhu T*
+      <input id="temp" type="range" min="0.4" max="2.5" step="0.1" value="1.0">
+      <output id="tempOut">1.0</output>
+    </label>
+  </div>
+
+  <div class="panels">
+    <!-- ================= MD ================= -->
+    <section class="panel md" aria-labelledby="mdTitle">
+      <div class="ptitle">
+        <h2 id="mdTitle">Molecular Dynamics</h2>
+        <span class="tag">deterministik · ansambel NVE</span>
+      </div>
+      <div class="rule">F = −∇U → a = F/m → r(t+Δt) = r + vΔt + ½aΔt²</div>
+      <canvas id="mdBox" class="box" aria-label="Animasi partikel MD dengan panah kecepatan"></canvas>
+      <div class="stats">
+        <div class="stat"><span class="k">Waktu t*</span><span class="v" id="mdT">0.000</span></div>
+        <div class="stat"><span class="k">Langkah</span><span class="v" id="mdN">0</span></div>
+        <div class="stat"><span class="k">E total / N</span><span class="v" id="mdE">0</span></div>
+      </div>
+      <div class="msg" id="mdMsg">Semua partikel bergerak serentak setiap langkah Δt.</div>
+      <canvas id="mdSpark" class="spark" aria-label="Grafik energi MD"></canvas>
+      <div class="legend"><span><i style="background:var(--md)"></i>U (potensial)</span><span><i style="background:var(--ke)"></i>K (kinetik)</span><span><i style="background:var(--fg)"></i>E = U + K (konstan)</span></div>
+      <p class="algo-h">Satu langkah MD</p>
+      <ol class="algo">
+        <li>Hitung gaya pada <b>semua</b> partikel dari turunan potensial.</li>
+        <li>Perbarui kecepatan dan posisi semua partikel (velocity Verlet, Δt* = 0.005).</li>
+        <li>Waktu maju Δt. Ulangi. Hasilnya lintasan r(t) yang mulus.</li>
+      </ol>
+    </section>
+
+    <!-- ================= MC ================= -->
+    <section class="panel mc" aria-labelledby="mcTitle">
+      <div class="ptitle">
+        <h2 id="mcTitle">Monte Carlo</h2>
+        <span class="tag">stokastik · ansambel NVT</span>
+      </div>
+      <div class="rule">ΔU ≤ 0 → terima · ΔU &gt; 0 → terima jika ξ &lt; e<sup>−ΔU/kT</sup></div>
+      <canvas id="mcBox" class="box" aria-label="Animasi partikel MC dengan percobaan pindah"></canvas>
+      <div class="stats">
+        <div class="stat"><span class="k">Percobaan</span><span class="v" id="mcN">0</span></div>
+        <div class="stat"><span class="k">Diterima</span><span class="v" id="mcA">0 %</span></div>
+        <div class="stat"><span class="k">U / N</span><span class="v" id="mcU">0</span></div>
+      </div>
+      <div class="msg" id="mcMsg">Satu partikel dipilih acak per percobaan. Tidak ada kecepatan, tidak ada waktu.</div>
+      <canvas id="mcSpark" class="spark" aria-label="Grafik energi MC"></canvas>
+      <div class="legend"><span><i style="background:var(--mc)"></i>U (potensial) — berfluktuasi di sekitar nilai setimbang pada suhu T</span></div>
+      <p class="algo-h">Satu percobaan MC</p>
+      <ol class="algo">
+        <li>Pilih <b>satu</b> partikel secara acak, usulkan pindah acak sejauh ≤ δ.</li>
+        <li>Hitung ΔU = U(baru) − U(lama). Gaya tidak diperlukan.</li>
+        <li>Terima atau tolak dengan kriteria Metropolis. Ulangi. Hasilnya deretan konfigurasi, bukan lintasan waktu.</li>
+      </ol>
+    </section>
+  </div>
+
+  <h2>Perbandingan</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Aspek</th><th class="md">Molecular Dynamics (Newton)</th><th class="mc">Monte Carlo (Metropolis)</th></tr></thead>
+      <tbody>
+        <tr><th>Yang dihitung</th><td>Gaya F = −∇U (perlu turunan potensial)</td><td>Hanya energi U, cukup selisih ΔU</td></tr>
+        <tr><th>Siapa yang bergerak</th><td>Semua partikel serentak</td><td>Satu partikel per percobaan</td></tr>
+        <tr><th>Arah gerak</th><td>Ditentukan oleh gaya dan kecepatan</td><td>Acak, lalu disaring dengan e<sup>−ΔU/kT</sup></td></tr>
+        <tr><th>Bilangan acak</th><td>Hanya untuk kecepatan awal</td><td>Setiap percobaan (memilih partikel, arah, ξ)</td></tr>
+        <tr><th>Waktu</th><td>Ada waktu fisik (ps): langkah Δt</td><td>Tidak ada waktu fisik; "MC step" hanya urutan sampel</td></tr>
+        <tr><th>Suhu</th><td>Hasil (dari energi kinetik); E total tetap (NVE)</td><td>Masukan (parameter T); E berfluktuasi (NVT)</td></tr>
+        <tr><th>Gerakan "tidak fisik"</th><td>Tidak mungkin, mengikuti hukum gerak</td><td>Boleh (swap, lompat jauh) asal kriteria penerimaan benar</td></tr>
+        <tr><th>Hasil yang bisa diukur</th><td>Statis dan dinamis: densitas, energi, difusi, viskositas</td><td>Statis (rata-rata ansambel): densitas, energi, struktur, tegangan permukaan</td></tr>
+        <tr><th>Di praktikum</th><td>Lab 3: cairan LJ, integrasi Verlet</td><td>Lab 4: kisi cair–uap, swap tetangga terdekat</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p><b>Yang sama:</b> jika sistem setimbang dan ergodik, rata-rata besaran statis (misalnya ⟨U⟩ atau profil densitas) dari kedua metode sama, karena keduanya mengambil sampel dari distribusi Boltzmann. MD sampai ke sana lewat dinamika; MC lewat rantai Markov.</p>
+    <p class="tag">Satuan tereduksi Lennard-Jones: σ = ε = m = 1, kotak 8σ × 8σ dengan PBC, r<sub>cut</sub> = 2.5σ, δ<sub>MC</sub> = 0.25σ. Mengubah suhu menskalakan ulang kecepatan MD sekali, dan langsung dipakai di kriteria MC.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- parameters (LJ reduced units) ----------
+  const N = 36, L = 8, RC = 2.5, RC2 = RC * RC, DT = 0.005, DELTA = 0.25, STAR = 14;
+  const ECUT = 4 * (Math.pow(RC, -12) - Math.pow(RC, -6));
+  const SPEEDS = { md: [1, 2, 4, 8, 16], mc: [1, 3, 9, 36, 108] };
+  const TRAIL = 500, SPARK = 260;
+
+  let T = 1.0, speed = 3, playing = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- seeded RNG so both start identical ----------
+  function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  let rand = rng(7);
+  const gauss = () => { let u = 0, v = 0; while (!u) u = rand(); v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const wrap = x => x - L * Math.floor(x / L);
+  const mic = d => d - L * Math.round(d / L);
+
+  function initialPositions() {
+    const p = new Float64Array(2 * N), n = 6, s = L / n;
+    for (let i = 0; i < N; i++) {
+      p[2 * i] = (i % n + 0.5) * s + (Math.floor(i / n) % 2) * 0.3;
+      p[2 * i + 1] = (Math.floor(i / n) + 0.5) * s;
+    }
+    return p;
+  }
+
+  // ---------- LJ ----------
+  function pairU(r2) { if (r2 >= RC2) return 0; const ir6 = 1 / (r2 * r2 * r2); return 4 * (ir6 * ir6 - ir6) - ECUT; }
+  function totalU(p) {
+    let U = 0;
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const dx = mic(p[2 * i] - p[2 * j]), dy = mic(p[2 * i + 1] - p[2 * j + 1]);
+      U += pairU(dx * dx + dy * dy);
+    }
+    return U;
+  }
+  function forces(p, f) {
+    f.fill(0); let U = 0;
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const dx = mic(p[2 * i] - p[2 * j]), dy = mic(p[2 * i + 1] - p[2 * j + 1]);
+      const r2 = dx * dx + dy * dy;
+      if (r2 >= RC2) continue;
+      const ir2 = 1 / r2, ir6 = ir2 * ir2 * ir2;
+      const ff = 24 * ir2 * ir6 * (2 * ir6 - 1);
+      f[2 * i] += ff * dx; f[2 * i + 1] += ff * dy;
+      f[2 * j] -= ff * dx; f[2 * j + 1] -= ff * dy;
+      U += 4 * (ir6 * ir6 - ir6) - ECUT;
+    }
+    return U;
+  }
+  function particleU(p, i, x, y) {
+    let U = 0;
+    for (let j = 0; j < N; j++) {
+      if (j === i) continue;
+      const dx = mic(x - p[2 * j]), dy = mic(y - p[2 * j + 1]);
+      U += pairU(dx * dx + dy * dy);
+    }
+    return U;
+  }
+
+  // ---------- state ----------
+  let md, mc;
+  function kinetic(v) { let k = 0; for (let i = 0; i < 2 * N; i++) k += v[i] * v[i]; return 0.5 * k; }
+  function rescale(v, Ttarget) {
+    const Tnow = kinetic(v) / (N - 1); // 2D: K = (dof/2) T, dof = 2N-2
+    const s = Math.sqrt(Ttarget / Math.max(Tnow, 1e-9));
+    for (let i = 0; i < 2 * N; i++) v[i] *= s;
+  }
+  function reset() {
+    rand = rng(7);
+    const p0 = initialPositions();
+    const v = new Float64Array(2 * N);
+    let sx = 0, sy = 0;
+    for (let i = 0; i < N; i++) { v[2 * i] = gauss(); v[2 * i + 1] = gauss(); sx += v[2 * i]; sy += v[2 * i + 1]; }
+    for (let i = 0; i < N; i++) { v[2 * i] -= sx / N; v[2 * i + 1] -= sy / N; }
+    rescale(v, T);
+    md = { p: Float64Array.from(p0), v, f: new Float64Array(2 * N), t: 0, n: 0, trail: [], spark: [] };
+    md.U = forces(md.p, md.f);
+    mc = { p: Float64Array.from(p0), n: 0, acc: 0, trail: [], spark: [], last: null };
+    mc.U = totalU(mc.p);
+    md.trail.push([md.p[2 * STAR], md.p[2 * STAR + 1]]);
+    mc.trail.push([mc.p[2 * STAR], mc.p[2 * STAR + 1]]);
+    pushSpark();
+    mdMsg("Posisi awal sama dengan MC. Kecepatan awal acak sesuai T* = " + T.toFixed(1) + " (satu-satunya bilangan acak di MD).");
+    mcMsg("Posisi awal sama dengan MD. Tidak ada kecepatan: yang ada hanya konfigurasi dan energinya.");
+  }
+
+  // ---------- MD step: velocity Verlet ----------
+  function mdStep() {
+    const { p, v, f } = md;
+    for (let i = 0; i < 2 * N; i++) { v[i] += 0.5 * DT * f[i]; p[i] = wrap(p[i] + DT * v[i]); }
+    md.U = forces(p, f);
+    for (let i = 0; i < 2 * N; i++) v[i] += 0.5 * DT * f[i];
+    md.t += DT; md.n++;
+    md.trail.push([p[2 * STAR], p[2 * STAR + 1]]);
+    if (md.trail.length > TRAIL) md.trail.shift();
+  }
+
+  // ---------- MC trial: Metropolis ----------
+  function mcTrial() {
+    const p = mc.p;
+    const i = Math.floor(rand() * N);
+    const x0 = p[2 * i], y0 = p[2 * i + 1];
+    const x1 = wrap(x0 + (2 * rand() - 1) * DELTA), y1 = wrap(y0 + (2 * rand() - 1) * DELTA);
+    const dU = particleU(p, i, x1, y1) - particleU(p, i, x0, y0);
+    let accept, prob = 1, xi = null;
+    if (dU <= 0) accept = true;
+    else { prob = Math.exp(-dU / T); xi = rand(); accept = xi < prob; }
+    if (accept) { p[2 * i] = x1; p[2 * i + 1] = y1; mc.U += dU; mc.acc++; }
+    mc.n++;
+    mc.last = { i, x0, y0, x1, y1, dU, prob, xi, accept, age: 0 };
+    if (i === STAR || mc.n % 4 === 0) {
+      mc.trail.push([p[2 * STAR], p[2 * STAR + 1]]);
+      if (mc.trail.length > TRAIL) mc.trail.shift();
+    }
+  }
+
+  // ---------- messages / stats ----------
+  const $ = id => document.getElementById(id);
+  const mdMsg = s => { $("mdMsg").innerHTML = s; };
+  const mcMsg = s => { $("mcMsg").innerHTML = s; };
+  const fmt = (x, d = 3) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d);
+
+  function describeMD() {
+    const fx = md.f[2 * STAR], fy = md.f[2 * STAR + 1], vx = md.v[2 * STAR], vy = md.v[2 * STAR + 1];
+    const Tinst = kinetic(md.v) / (N - 1);
+    mdMsg("Semua 36 partikel maju Δt bersama-sama. Partikel ★: |F| = " + Math.hypot(fx, fy).toFixed(2) +
+      ", |v| = " + Math.hypot(vx, vy).toFixed(2) + ". Suhu sesaat T* = " + Tinst.toFixed(2) + " (hasil, bukan masukan).");
+  }
+  function describeMC() {
+    const l = mc.last; if (!l) return;
+    let s = "Partikel #" + l.i + (l.i === STAR ? " ★" : "") + " dicoba pindah. ΔU = " + fmt(l.dU, 2) + " → ";
+    if (l.dU <= 0) s += "energi turun, langsung <span class=\"ok\">DITERIMA</span>.";
+    else s += "p = e<sup>−ΔU/kT</sup> = " + l.prob.toFixed(3) + ", ξ = " + l.xi.toFixed(3) + " → " +
+      (l.accept ? "<span class=\"ok\">DITERIMA</span> (ξ &lt; p)." : "<span class=\"bad\">DITOLAK</span>, partikel kembali ke posisi lama.");
+    mcMsg(s);
+  }
+  function stats() {
+    const K = kinetic(md.v);
+    $("mdT").textContent = md.t.toFixed(3);
+    $("mdN").textContent = md.n.toLocaleString("id-ID");
+    $("mdE").textContent = ((md.U + K) / N).toFixed(3);
+    $("mcN").textContent = mc.n.toLocaleString("id-ID");
+    $("mcA").textContent = mc.n ? (100 * mc.acc / mc.n).toFixed(0) + " %" : "0 %";
+    $("mcU").textContent = (mc.U / N).toFixed(3);
+  }
+  function pushSpark() {
+    const K = kinetic(md.v);
+    md.spark.push([md.U / N, K / N, (md.U + K) / N]);
+    mc.spark.push([mc.U / N]);
+    if (md.spark.length > SPARK) md.spark.shift();
+    if (mc.spark.length > SPARK) mc.spark.shift();
+  }
+
+  // ---------- drawing ----------
+  let C = {};
+  function readColors() {
+    const cs = getComputedStyle(document.documentElement);
+    ["--fg", "--muted", "--line", "--md", "--mc", "--ok", "--bad", "--ke", "--particle", "--bg", "--surface"].forEach(k => C[k] = cs.getPropertyValue(k).trim());
+  }
+  function fitCanvas(cv) {
+    const dpr = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return [ctx, r.width, r.height];
+  }
+  function drawTrail(ctx, trail, s, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    for (let k = 1; k < trail.length; k++) {
+      const a = trail[k - 1], b = trail[k];
+      if (Math.abs(a[0] - b[0]) > L / 2 || Math.abs(a[1] - b[1]) > L / 2) continue; // PBC jump
+      ctx.globalAlpha = 0.15 + 0.85 * k / trail.length;
+      ctx.beginPath(); ctx.moveTo(a[0] * s, (L - a[1]) * s); ctx.lineTo(b[0] * s, (L - b[1]) * s); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  function star(ctx, x, y, r, color) {
+    ctx.fillStyle = color; ctx.beginPath();
+    for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); }
+    ctx.closePath(); ctx.fill();
+  }
+  function drawBox(cv, sys, kind) {
+    const [ctx, w] = fitCanvas(cv), s = w / L, R = 0.5 * s * 0.92, accent = kind === "md" ? C["--md"] : C["--mc"];
+    ctx.clearRect(0, 0, w, w);
+    // grid every sigma
+    ctx.strokeStyle = C["--line"]; ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+    for (let k = 1; k < L; k++) { ctx.beginPath(); ctx.moveTo(k * s, 0); ctx.lineTo(k * s, w); ctx.moveTo(0, k * s); ctx.lineTo(w, k * s); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    drawTrail(ctx, sys.trail, s, accent);
+    const p = sys.p;
+    for (let i = 0; i < N; i++) {
+      const x = p[2 * i] * s, y = (L - p[2 * i + 1]) * s;
+      for (const ox of [-w, 0, w]) for (const oy of [-w, 0, w]) {         // periodic images near edges
+        const X = x + ox, Y = y + oy;
+        if (X < -R || X > w + R || Y < -R || Y > w + R) continue;
+        ctx.fillStyle = i === STAR ? accent : C["--particle"];
+        ctx.globalAlpha = i === STAR ? 1 : 0.85;
+        ctx.beginPath(); ctx.arc(X, Y, R, 0, 2 * Math.PI); ctx.fill();
+        ctx.globalAlpha = 1;
+        if (i === STAR) star(ctx, X, Y, R * 0.6, C["--surface"]);
+      }
+      if (kind === "md") {                                                 // velocity arrows
+        const vx = md.v[2 * i], vy = md.v[2 * i + 1], k = 0.35 * s;
+        const ex = x + vx * k, ey = y - vy * k;
+        ctx.strokeStyle = i === STAR ? C["--fg"] : accent; ctx.lineWidth = i === STAR ? 2 : 1.3;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+        const ang = Math.atan2(ey - y, ex - x), hs = 5;
+        ctx.beginPath(); ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - hs * Math.cos(ang - 0.45), ey - hs * Math.sin(ang - 0.45));
+        ctx.lineTo(ex - hs * Math.cos(ang + 0.45), ey - hs * Math.sin(ang + 0.45));
+        ctx.closePath(); ctx.fillStyle = ctx.strokeStyle; ctx.fill();
+      }
+    }
+    if (kind === "mc" && sys.last) {                                       // trial move ghost
+      const l = sys.last, fade = Math.max(0, 1 - l.age / 40);
+      if (fade > 0) {
+        const col = l.accept ? C["--ok"] : C["--bad"];
+        const ax = l.x0 * s, ay = (L - l.y0) * s;
+        const bx = ax + mic(l.x1 - l.x0) * s, by = ay - mic(l.y1 - l.y0) * s;
+        ctx.globalAlpha = fade;
+        ctx.setLineDash([4, 3]); ctx.strokeStyle = col; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bx, by, R, 0, 2 * Math.PI); ctx.stroke();
+        ctx.beginPath(); ctx.arc(ax, ay, R + 3, 0, 2 * Math.PI); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+        ctx.font = "600 12px " + getComputedStyle(document.body).getPropertyValue("--font-mono");
+        ctx.fillStyle = col;
+        ctx.fillText(l.accept ? "✓" : "✗", Math.min(bx + R + 3, w - 12), Math.max(by - R, 12));
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  function drawSpark(cv, data, colors) {
+    const [ctx, w, h] = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    if (data.length < 2) return;
+    let lo = Infinity, hi = -Infinity;
+    for (const row of data) for (const v of row) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const pad = (hi - lo) * 0.12 || 0.1; lo -= pad; hi += pad;
+    const left = 44, top = 6, bottom = h - 16, right = w - 4;
+    const X = k => left + (right - left) * k / (SPARK - 1), Y = v => bottom - (bottom - top) * (v - lo) / (hi - lo);
+    ctx.strokeStyle = C["--line"]; ctx.lineWidth = 1;
+    ctx.font = "11px " + getComputedStyle(document.body).getPropertyValue("--font-mono");
+    ctx.fillStyle = C["--muted"]; ctx.textBaseline = "middle";
+    for (const v of [lo + pad, (lo + hi) / 2, hi - pad]) {
+      ctx.beginPath(); ctx.moveTo(left, Y(v)); ctx.lineTo(right, Y(v)); ctx.stroke();
+      ctx.fillText(v.toFixed(2), 2, Y(v));
+    }
+    ctx.textBaseline = "alphabetic"; ctx.fillText("energi per partikel, riwayat terbaru →", left, h - 2);
+    colors.forEach((col, c) => {
+      ctx.strokeStyle = col; ctx.lineWidth = c === 2 ? 2.2 : 1.6; ctx.beginPath();
+      data.forEach((row, k) => { const x = X(k + SPARK - data.length), y = Y(row[c]); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+    });
+  }
+  function draw() {
+    drawBox($("mdBox"), md, "md");
+    drawBox($("mcBox"), mc, "mc");
+    drawSpark($("mdSpark"), md.spark, [C["--md"], C["--ke"], C["--fg"]]);
+    drawSpark($("mcSpark"), mc.spark, [C["--mc"]]);
+    stats();
+  }
+
+  // ---------- loop ----------
+  let frame = 0;
+  function tick() {
+    if (playing) {
+      const nmd = SPEEDS.md[speed - 1], nmc = SPEEDS.mc[speed - 1];
+      for (let k = 0; k < nmd; k++) mdStep();
+      for (let k = 0; k < nmc; k++) mcTrial();
+      if (frame % 2 === 0) pushSpark();
+      if (frame % 6 === 0) { describeMD(); describeMC(); }
+      frame++;
+    }
+    if (mc.last) mc.last.age += playing ? (speed >= 4 ? 8 : 2) : 0;
+    draw();
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- controls ----------
+  $("play").addEventListener("click", () => { playing = !playing; $("play").textContent = playing ? "Jeda" : "Putar"; });
+  $("step").addEventListener("click", () => {
+    playing = false; $("play").textContent = "Putar";
+    mdStep(); mcTrial(); pushSpark(); describeMD(); describeMC();
+  });
+  $("reset").addEventListener("click", () => { reset(); });
+  $("speed").addEventListener("input", e => { speed = +e.target.value; $("speedOut").textContent = speed; });
+  $("temp").addEventListener("input", e => {
+    T = +e.target.value; $("tempOut").textContent = T.toFixed(1);
+    rescale(md.v, T);
+    mdMsg("Kecepatan MD diskalakan ulang ke T* = " + T.toFixed(1) + ". Setelah itu MD kembali NVE: suhu ikut berubah sendiri.");
+    mcMsg("Kriteria Metropolis sekarang memakai T* = " + T.toFixed(1) + ". Suhu tinggi → lebih banyak langkah naik energi diterima.");
+  });
+  const themeRefresh = () => readColors();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeRefresh);
+  new MutationObserver(themeRefresh).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  readColors();
+  reset();
+  $("play").textContent = playing ? "Jeda" : "Putar";
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
