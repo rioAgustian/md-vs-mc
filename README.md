@@ -1,7 +1,7 @@
 # Newton vs Metropolis
 
-Ilustrasi interaktif perbedaan **molecular dynamics** (hukum Newton) dan **Monte Carlo** (kriteria Metropolis) pada 36 partikel Lennard-Jones 2D.
+Interactive illustration of the difference between **molecular dynamics** (Newton's laws) and **Monte Carlo** (Metropolis criterion) for 36 Lennard-Jones particles in 2D.
 
-Buka halaman: https://rioagustian.github.io/md-vs-mc/
+Open the page: https://rioagustian.github.io/md-vs-mc/
 
-Satu file HTML statis (`index.html`), tanpa build atau dependensi.
+A single static HTML file (`index.html`), no build step or dependencies.
